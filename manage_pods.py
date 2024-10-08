@@ -3,82 +3,81 @@ import sys
 import yaml
 from kubernetes import client, config
 
-# Ruta donde se almacenarán las configuraciones de los pods
-PODS_BACKUP_DIR = os.path.expanduser('~/.k8s_pods_backup')
+# Ruta donde se almacenarán las configuraciones
+BACKUP_DIR = os.path.expanduser('~/.k8s_backup')
 
-def save_pods():
+def save_resources():
     config.load_kube_config()
-    v1 = client.CoreV1Api()
-    
+    apps_v1 = client.AppsV1Api()
+    core_v1 = client.CoreV1Api()
+
     # Crear el directorio si no existe
-    os.makedirs(PODS_BACKUP_DIR, exist_ok=True)
-    
-    # Obtener todos los pods en todos los namespaces
-    pods = v1.list_pod_for_all_namespaces(watch=False)
-    
-    for pod in pods.items:
-        namespace = pod.metadata.namespace
-        name = pod.metadata.name
-        
-        # Obtener la definición del pod
-        pod_def = v1.read_namespaced_pod(name, namespace)
-        
-        # Serializar la definición del pod a YAML
-        pod_def_dict = client.ApiClient().sanitize_for_serialization(pod_def)
-        pod_def_yaml = yaml.dump(pod_def_dict)
-        
-        # Guardar la definición en un archivo YAML
-        pod_dir = os.path.join(PODS_BACKUP_DIR, namespace)
-        os.makedirs(pod_dir, exist_ok=True)
-        pod_file = os.path.join(pod_dir, f"{name}.yaml")
-        
-        with open(pod_file, 'w') as f:
-            f.write(pod_def_yaml)
-    print("Se han guardado las configuraciones de los pods.")
-    
-def delete_pods():
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+
+    # Guardar Deployments
+    deployments = apps_v1.list_deployment_for_all_namespaces()
+    for dep in deployments.items:
+        namespace = dep.metadata.namespace
+        name = dep.metadata.name
+
+        dep_def = apps_v1.read_namespaced_deployment(name, namespace)
+        dep_def_dict = client.ApiClient().sanitize_for_serialization(dep_def)
+        dep_def_yaml = yaml.dump(dep_def_dict)
+
+        dep_dir = os.path.join(BACKUP_DIR, 'deployments', namespace)
+        os.makedirs(dep_dir, exist_ok=True)
+        dep_file = os.path.join(dep_dir, f"{name}.yaml")
+
+        with open(dep_file, 'w') as f:
+            f.write(dep_def_yaml)
+
+    # Puedes repetir el mismo proceso para otros recursos como Services, ConfigMaps, etc.
+
+    print("Se han guardado las configuraciones de los Deployments.")
+
+def delete_resources():
     config.load_kube_config()
-    v1 = client.CoreV1Api()
-    
-    # Obtener todos los pods en todos los namespaces
-    pods = v1.list_pod_for_all_namespaces(watch=False)
-    
-    for pod in pods.items:
-        namespace = pod.metadata.namespace
-        name = pod.metadata.name
-        
-        # Eliminar el pod
-        v1.delete_namespaced_pod(name, namespace)
-        print(f"Pod {name} en el namespace {namespace} eliminado.")
-        
-def restore_pods():
+    apps_v1 = client.AppsV1Api()
+
+    # Eliminar Deployments
+    deployments = apps_v1.list_deployment_for_all_namespaces()
+    for dep in deployments.items:
+        namespace = dep.metadata.namespace
+        name = dep.metadata.name
+
+        apps_v1.delete_namespaced_deployment(name, namespace)
+        print(f"Deployment {name} en el namespace {namespace} eliminado.")
+
+    # Si deseas eliminar otros recursos, agrégalos aquí.
+
+def restore_resources():
     config.load_kube_config()
-    for root, dirs, files in os.walk(PODS_BACKUP_DIR):
+    # Restaurar Deployments
+    deployments_dir = os.path.join(BACKUP_DIR, 'deployments')
+    for root, dirs, files in os.walk(deployments_dir):
         for file in files:
             if file.endswith('.yaml'):
-                pod_file = os.path.join(root, file)
-                
-                # Restaurar el pod usando kubectl
-                os.system(f"kubectl apply -f {pod_file}")
-                
-    print("Se han restaurado los pods desde las configuraciones previas.")
-    
+                dep_file = os.path.join(root, file)
+                os.system(f"kubectl apply -f {dep_file}")
+
+    print("Se han restaurado los Deployments desde las configuraciones previas.")
+
 def main():
     if len(sys.argv) != 2:
-        print("Uso: python manage_pods.py [save|delete|restore]")
+        print("Uso: python manage_resources.py [save|delete|restore]")
         sys.exit(1)
-        
+
     action = sys.argv[1]
-    
+
     if action == 'save':
-        save_pods()
+        save_resources()
     elif action == 'delete':
-        delete_pods()
+        delete_resources()
     elif action == 'restore':
-        restore_pods()
+        restore_resources()
     else:
-        print("Acción no reconocida. Uso: python manage_pods.py [save|delete|restore]")
+        print("Acción no reconocida. Uso: python manage_resources.py [save|delete|restore]")
         sys.exit(1)
-        
+
 if __name__ == '__main__':
     main()
